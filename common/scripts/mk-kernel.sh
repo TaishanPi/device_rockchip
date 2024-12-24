@@ -90,7 +90,59 @@ do_build()
 				error "Missing wireless-bluetooth in $RK_KERNEL_DTS!"
 			fi
 			;;
-		modules) run_command $KMAKE modules ;;
+		modules) 
+			run_command $KMAKE modules 
+			;;
+		extboot)
+			echo "*******************extboot*********************"
+			run_command $KMAKE "$RK_KERNEL_DTS_NAME.img"
+			run_command $KMAKE dtbs
+
+			# set -x
+			EXTBOOT_IMG=$RK_SDK_DIR/kernel/boot.img
+			EXTBOOT_DIR=$RK_OUTDIR/extboot
+			EXTBOOT_DTB=$EXTBOOT_DIR/dtb
+			USER_DOOT_CONFIG=$EXTBOOT_DIR/configs
+			USER_DOOT_PKG=$EXTBOOT_DIR/dpkg
+			USER_DOOT_EXTLINUX=$EXTBOOT_DIR/extlinux
+
+			rm -rf $EXTBOOT_DIR
+			mkdir -p $EXTBOOT_DIR $EXTBOOT_DTB $USER_DOOT_PKG $USER_DOOT_CONFIG $USER_DOOT_EXTLINUX $EXTBOOT_DTB/overlays/
+			KERNEL_RELEASE=$(cat $RK_SDK_DIR/kernel/include/config/kernel.release)
+			
+			echo -e "label kernel-$KERNEL_RELEASE" >> $USER_DOOT_EXTLINUX/extlinux.conf
+			echo -e "\tkernel /Image-$KERNEL_RELEASE" >> $USER_DOOT_EXTLINUX/extlinux.conf
+			echo -e "\tfdt /dtb/$RK_KERNEL_DTS_NAME.dtb" >> $USER_DOOT_EXTLINUX/extlinux.conf
+			echo -e "\tappend  root=/dev/mmcblk0p3 console=ttyFIQ0" >> $USER_DOOT_EXTLINUX/extlinux.conf
+
+			cp $RK_SDK_DIR/$RK_KERNEL_IMG $EXTBOOT_DIR/Image-$KERNEL_RELEASE
+			cp $RK_SDK_DIR/kernel/arch/arm64/boot/dts/rockchip/configs/* $USER_DOOT_CONFIG/
+			mkimage -T script -C none -d $RK_SDK_DIR/kernel/arch/arm64/boot/dts/rockchip/configs/boot.cmd $EXTBOOT_DIR/boot.scr 
+
+			# make ARCH=$RK_ARCH KBUILD_SRC= INSTALL_DTBS_PATH="$EXTBOOT_DTB/" dtbs_install -j$RK_JOB
+			cp $RK_SDK_DIR/kernel/arch/arm64/boot/dts/rockchip/*.dtb $EXTBOOT_DTB
+			cp $RK_SDK_DIR/kernel/arch/arm64/boot/dts/rockchip/overlays/*.dtbo $EXTBOOT_DTB/overlays/
+
+			cp $EXTBOOT_DTB/$RK_KERNEL_DTS_NAME.dtb $EXTBOOT_DIR/rk-kernel.dtb
+
+			cp $RK_SDK_DIR/kernel/.config $EXTBOOT_DIR/config-$KERNEL_RELEASE
+			cp $RK_SDK_DIR/kernel/System.map $EXTBOOT_DIR/System.map-$KERNEL_RELEASE
+
+			cp $RK_SDK_DIR/kernel/logo.bmp $EXTBOOT_DIR/
+			cp $RK_SDK_DIR/kernel/logo_kernel.bmp $EXTBOOT_DIR/
+
+			# cp $RK_SDK_DIR/linux-headers-"$KERNEL_RELEASE"_"$KERNEL_RELEASE"-*.deb $USER_DOOT_PKG/
+			# cp $RK_SDK_DIR/linux-image-"$KERNEL_RELEASE"_"$KERNEL_RELEASE"-*.deb $USER_DOOT_PKG/
+
+			rm -rf $EXTBOOT_IMG
+			truncate -s 128M $EXTBOOT_IMG
+			fakeroot mkfs.ext2 -F -L "boot" -d $EXTBOOT_DIR $EXTBOOT_IMG
+
+			# set +x
+			
+			"$RK_SCRIPTS_DIR/check-power-domain.sh"
+			"$RK_SCRIPTS_DIR/check-security.sh" kernel dts
+			;;
 	esac
 }
 
@@ -278,6 +330,7 @@ usage_hook()
 	done
 
 	echo -e "kernel[:dry-run]                 \tbuild kernel"
+	echo -e "extboot[:dry-run]                \tbuild extboot"
 	echo -e "recovery-kernel[:dry-run]        \tbuild kernel for recovery"
 	echo -e "modules[:dry-run]                \tbuild kernel modules"
 	echo -e "linux-headers[:dry-run]          \tbuild linux-headers"
@@ -387,7 +440,7 @@ pre_build_hook_dry()
 	DRY_RUN=1 pre_build_hook $@
 }
 
-BUILD_CMDS="$KERNELS kernel recovery-kernel modules"
+BUILD_CMDS="$KERNELS kernel recovery-kernel modules extboot"
 build_hook()
 {
 	check_config RK_KERNEL RK_KERNEL_CFG || false
@@ -395,11 +448,10 @@ build_hook()
 
 	message "Toolchain for kernel:"
 	message "${RK_KERNEL_TOOLCHAIN:-gcc}"
-	echo
 
 	case "$1" in
 		recovery-kernel) build_recovery_kernel $@ ;;
-		kernel-*)
+		kernel-* | extboot)
 			if [ "$RK_KERNEL_VERSION" != "${1#kernel-}" ]; then
 				warning "Kernel version ${1#kernel-} ignored"
 			fi

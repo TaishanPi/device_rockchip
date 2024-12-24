@@ -1,0 +1,3 @@
+RK_KERNEL_DTS_NAME="tspi-rk3566-user-v10-linux"
+RK_PARAMETER="parameter-ubuntu-fit.txt"
+
