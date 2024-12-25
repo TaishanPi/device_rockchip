@@ -1,3 +1,5 @@
 RK_KERNEL_DTS_NAME="tspi-rk3566-user-v10-linux"
 RK_PARAMETER="parameter-ubuntu-fit.txt"
+RK_USE_FIT_IMG=n
+RK_USE_EXTBOOT_IMG=y
 
